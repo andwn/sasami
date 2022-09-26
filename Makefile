@@ -1,99 +1,140 @@
-GENDEV?=/opt/toolchains/gen/
-GCC_VER?=4.9.3
-MAKE?=make
+# Sample Makefile for Marsdev (With SGDK, Optional Newlib)
 
-GENGCC_BIN=$(GENDEV)/m68k-elf/bin
-GENBIN=$(GENDEV)/bin
+# Default paths, can be overridden by setting MARSDEV before calling make
+MARSDEV ?= ${HOME}/mars
+MARSBIN  = $(MARSDEV)/m68k-elf/bin
+TOOLSBIN = $(MARSDEV)/bin
 
-CC = $(GENGCC_BIN)/m68k-elf-gcc 
-AS = $(GENGCC_BIN)/m68k-elf-as
-AR = $(GENGCC_BIN)/m68k-elf-ar 
-LD = $(GENGCC_BIN)/m68k-elf-ld
-RANLIB = $(GENGCC_BIN)/m68k-elf-ranlib 
-OBJC = $(GENGCC_BIN)/m68k-elf-objcopy 
-BINTOS = $(GENBIN)/bintos 
-RESCOMP= $(GENBIN)/rescomp
-XGMTOOL= $(GENBIN)/xgmtool
-PCMTORAW = $(GENBIN)/pcmtoraw
-WAVTORAW = $(GENBIN)/wavtoraw
-SIZEBND = $(GENBIN)/sizebnd
-ASMZ80 = $(GENBIN)/zasm
+# GCC and Binutils
+CC   = $(MARSBIN)/m68k-elf-gcc
+CXX  = $(MARSBIN)/m68k-elf-g++
+AS   = $(MARSBIN)/m68k-elf-as
+LD   = $(MARSBIN)/m68k-elf-ld
+NM   = $(MARSBIN)/m68k-elf-nm
+OBJC = $(MARSBIN)/m68k-elf-objcopy
+# SGDK Tools
+RESCOMP = java -jar $(TOOLSBIN)/rescomp.jar
+BINTOS   = $(TOOLSBIN)/bintos
+PCMTORAW = $(TOOLSBIN)/pcmtoraw
+WAVTORAW = $(TOOLSBIN)/wavtoraw
+XGMTOOL  = $(TOOLSBIN)/xgmtool
 
-RM = rm -f 
-NM = nm
-NM2WCH = nm2wch
+# Some files needed are in a versioned directory
+GCC_VER := $(shell $(CC) -dumpversion)
 
-OPTION =
-INCS = -I. -I$(GENDEV)/m68k-elf/include -I$(GENDEV)/m68k-elf/m68k-elf/include -Isrc -Ires -Iinc
-CCFLAGS = $(OPTION) -m68000 -Wall -O2 -std=gnu99 -c -fomit-frame-pointer -fno-builtin
-HWCCFLAGS = $(OPTION) -m68000 -Wall -O1 -c -fomit-frame-pointer
-Z80FLAGS = -vb2
-ASFLAGS = -m68000 --register-prefix-optional
-LIBS =  -L$(GENDEV)/m68k-elf/lib -L$(GENDEV)/m68k-elf/lib/gcc/m68k-elf/* -L$(GENDEV)/m68k-elf/m68k-elf/lib -lmd -lnosys 
-LINKFLAGS = -T $(GENDEV)/ldscripts/sgdk.ld -nostdlib 
-SCDLINKFLAGS = -T scd/mdcd.ld -nostdlib 
-ARCHIVES = $(GENDEV)/m68k-elf/lib/libmd.a $(GENDEV)/m68k-elf/lib/gcc/m68k-elf/$(GCC_VER)/libgcc.a 
+# Need the LTO plugin so NM can dump our symbol table
+PLUGIN   = $(MARSDEV)/m68k-elf/libexec/gcc/m68k-elf/$(GCC_VER)
+LTO_SO   = liblto_plugin.so
+ifeq ($(OS),Windows_NT)
+	LTO_SO = liblto_plugin-0.dll
+endif
 
-BOOTSS=$(wildcard boot/*.s)
-BOOTSS+=$(wildcard src/boot/*.s)
-BOOT_RESOURCES=$(BOOTSS:.s=.o)
+# Includes: Local + GCC + SGDK + Newlib
+INCS     = -Isrc -Ires -Iinc
+INCS    += -I$(MARSDEV)/m68k-elf/lib/gcc/m68k-elf/$(GCC_VER)/include
+INCS    += -I$(MARSDEV)/m68k-elf/include
+#INCS    += -I$(MARSDEV)/m68k-elf/m68k-elf/include
 
-RESS=$(wildcard res/*.res)
-RESS+=$(wildcard *.res)
+# Libraries: GCC + Newlib (SGDK libs are with release/debug targets)
+# If you plan on using Newlib, uncomment the line with -lnosys
+LIBS     = -L$(MARSDEV)/m68k-elf/lib/gcc/m68k-elf/$(GCC_VER) -lgcc
+#LIBS    += -L$(MARSDEV)/m68k-elf/m68k-elf/lib -lnosys
 
-CS=$(wildcard src/*.c)
-CS+=$(wildcard src/ai/*.c)
-CS+=$(wildcard src/db/*.c)
+# Force libgcc math routines to be available at link time
+LIBS    += -u __modsi3 -u __divsi3 -u __mulsi3 -u __umodsi3 -u __udivsi3 -u __umulsi3
 
-SS=$(wildcard src/*.s)
-SS+=$(wildcard *.s)
+# Any C or C++ standard should be fine here as long as GCC support it
+CCFLAGS  = -m68000 -Wall -Wextra -std=c99 -ffreestanding -fcommon
+CXXFLAGS = -m68000 -Wall -Wextra -std=c++17 -ffreestanding
 
-S80S=$(wildcard src/*.s80)
-S80S+=$(wildcard *.s80)
+# Extra options set by debug or release target
+ASFLAGS  = -m68000 --register-prefix-optional
 
-RESOURCES=$(RESS:.res=.o)
-RESOURCES+=$(CS:.c=.o)
-RESOURCES+=$(SS:.s=.o)
-RESOURCES+=$(S80S:.s80=.o)
+# If you use Newlib, use the link with -nostartfiles instead
+LDFLAGS  = -T $(MARSDEV)/ldscripts/sgdk.ld -nostdlib
+#LDFLAGS  = -T $(MARSDEV)/ldscripts/sgdk.ld -nostartfiles
 
-OBJS = $(RESOURCES)
+RESS  = $(wildcard res/*.res)
+CS    = $(wildcard src/*.c)
+CPPS  = $(wildcard src/*.cpp)
+SS    = $(wildcard src/*.s)
+
+OBJS  = $(RESS:.res=.o)
+OBJS += $(CS:.c=.o)
+OBJS += $(CPPS:.cpp=.o)
+OBJS += $(SS:.s=.o)
+
+ASMO  = $(RESS:.res=.o)
+ASMO += $(CS:%.c=asmout/%.s)
 
 .SECONDARY: out.elf
 
-all: out.bin 
+.PHONY: all release asm debug
 
-src/boot/sega.o: out/rom_head.bin
-	$(AS) $(ASFLAGS) src/boot/sega.s -o $@
+all: release
+
+release: OPTIONS  = -O3 -fno-web -fno-gcse -fno-unit-at-a-time -fomit-frame-pointer
+release: OPTIONS += -fshort-enums -flto -fuse-linker-plugin
+release: LIBS += -L$(MARSDEV)/m68k-elf/lib -lmd
+release: out.bin symbol.txt
+
+asm: OPTIONS  = -O3 -fno-web -fno-gcse -fno-unit-at-a-time -fomit-frame-pointer
+asm: OPTIONS += -fshort-enums
+asm: LIBS += -L$(MARSDEV)/m68k-elf/lib -lmd
+asm: asm-dir $(ASMO)
+
+# Gens-KMod, BlastEm and UMDK support GDB tracing, enabled by this target
+debug: OPTIONS = -g -Og -DDEBUG -DKDEBUG -fno-web -fno-gcse -fno-unit-at-a-time -fshort-enums
+debug: LIBS += -L$(MARSDEV)/m68k-elf/lib -lmd-debug
+debug: out.bin symbol.txt
+
+# Generates a symbol table that is very helpful in debugging crashes
+# Cross reference symbol.txt with the addresses displayed in the crash handler
+symbol.txt: out.bin
+	$(NM) --plugin=$(PLUGIN)/$(LTO_SO) -n out.elf > symbol.txt
+
+boot/sega.o: boot/rom_head.bin
+	@echo "AS boot/sega.s"
+	@$(CC) $(INCS) -c -x assembler-with-cpp -Wa,-m68000,--register-prefix-optional,--bitwise-or boot/sega.s -o $@
+
+boot/rom_head.bin: boot/rom_head.c
+	@echo "CC $<"
+	@$(CC) $(CFLAGS) $(INCS) -fno-builtin -Wl,-nostdlib,--entry=0,--oformat=binary $< -o $@
 
 %.bin: %.elf
-	$(OBJC) -O binary $< temp.bin
-	dd if=temp.bin of=$@ bs=8K conv=sync
+	@echo "Stripping ELF header..."
+	@$(OBJC) -O binary $< temp.bin
+	@dd if=temp.bin of=$@ bs=8192 conv=sync
+	@rm -f temp.bin
 
-%.elf: $(OBJS) $(BOOT_RESOURCES)
-	$(CC) -o $@ $(LINKFLAGS) $(BOOT_RESOURCES) $(ARCHIVES) $(OBJS) $(LIBS)
-
-%.o80: %.s80
-	$(ASMZ80) $(Z80FLAGS) -o $@ $<
-
-%.c: %.o80
-	$(BINTOS) $<
+%.elf: boot/sega.o $(OBJS)
+	$(CC) -o $@ $(LDFLAGS) boot/sega.o $(OBJS) $(LIBS)
 
 %.o: %.c
-	$(CC) $(CCFLAGS) $(INCS) -c $< -o $@
+	@echo "CC $<"
+	@$(CC) $(CCFLAGS) $(OPTIONS) $(INCS) -c $< -o $@
+
+%.o: %.cpp
+	@echo "CXX $<"
+	@$(CXX) $(CXXFLAGS) $(OPTIONS) $(INCS) -c $< -o $@
 
 %.o: %.s 
-	$(AS) $(ASFLAGS) $< -o $@
+	@echo "AS $<"
+	@$(AS) $(ASFLAGS) $< -o $@
 
 %.s: %.res
 	$(RESCOMP) $< $@
 
-out/rom_head.bin: src/boot/rom_head.o
-	mkdir -p out/boot
-	$(LD) $(LINKFLAGS) --oformat binary -o $@ $<
-	
+# For asm target
+asm-dir:
+	mkdir -p asmout/src
+
+asmout/%.s: %.c
+	$(CC) $(CCFLAGS) $(OPTIONS) $(INCS) -S $< -o $@
+
+.PHONY: clean
 
 clean:
-	$(RM) $(RESOURCES)
-	$(RM) *.o *.bin *.elf *.map
-	$(RM) src/boot/*.o src/boot/*.bin
-
+	rm -f $(OBJS) out.bin out.elf symbol.txt
+	rm -f boot/sega.o boot/rom_head.o boot/rom_head.bin
+	rm -rf asmout

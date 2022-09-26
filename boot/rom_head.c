@@ -1,6 +1,6 @@
 #include "types.h"
 
-
+__attribute__((externally_visible))
 const struct
 {
     char console[16];               /* Console Name (16) */
@@ -23,7 +23,7 @@ const struct
     char region[16];                /* Country Support (16) */
 } rom_header = {
     "SEGA MEGA DRIVE ",
-    "@DONTGRIND 2016 ",
+    "@DONUTGRIND 2016",
     "Sasami Eating Spaghetti                         ",
     "Sasami Eating Spaghetti                         ",
     "GM 47524E44-02",
